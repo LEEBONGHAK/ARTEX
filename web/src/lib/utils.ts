@@ -5,16 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// 抽屉/对话框(Sheet/Dialog)的 onInteractOutside 关闭判定辅助。
+// 서랍/다이얼로그(Sheet/Dialog)의 onInteractOutside 닫기 판정 보조 함수.
 //
-// 背景:抽屉内的 Radix 弹层(Select 下拉、DropdownMenu、Popover 等)会 portal 到抽屉
-// 之外。开着弹层时点遮罩/抽屉外想收起它,这一次 pointerdown 会被 Select 和 Sheet 两个
-// DismissableLayer 同时处理;Select 先关闭且是 discrete 事件、React 会同步 flush,于是
-// 轮到 Sheet 的处理器时弹层的 data-state 早已翻成 closed —— 在"当下"检测弹层是否打开
-// 天然不可靠(实测已验证)。
+// 배경: 서랍 안의 Radix 오버레이(Select 드롭다운, DropdownMenu, Popover 등)는 서랍
+// 바깥으로 portal된다. 오버레이가 열린 상태에서 배경/서랍 바깥을 눌러 오버레이만 닫으려 할 때,
+// 이 한 번의 pointerdown을 Select와 Sheet 두 DismissableLayer가 동시에 처리한다. Select가
+// 먼저 닫히고 discrete 이벤트라 React가 동기로 flush하므로, Sheet 핸들러 차례가 되면 오버레이의
+// data-state는 이미 closed로 바뀌어 있다 —— "지금 이 순간" 오버레이가 열려 있는지 검사하는 것은
+// 본질적으로 신뢰할 수 없다(실측으로 확인됨).
 //
-// 正确做法:Radix 的 pointerdown 监听在冒泡阶段;我们在 capture 阶段(早于它)先把
-// "此刻有没有弹层开着"记录下来,onInteractOutside 再读这个记录值来决定是否放行关闭。
+// 올바른 방법: Radix의 pointerdown 리스너는 버블 단계에 있다. 우리는 capture 단계(그보다 먼저)에서
+// "이 순간 오버레이가 열려 있는지"를 먼저 기록해 두고, onInteractOutside가 그 기록값을 읽어 닫기를 허용할지 판단한다.
 function isRadixOverlayOpenNow(): boolean {
   if (typeof document === "undefined") return false;
   return !!document.querySelector(
@@ -35,26 +36,26 @@ if (typeof document !== "undefined") {
     () => {
       overlayOpenAtLastPointerDown = isRadixOverlayOpenNow();
     },
-    true, // capture:抢在 Radix 冒泡阶段的 pointerdown 处理器之前记录
+    true, // capture: Radix 버블 단계의 pointerdown 핸들러보다 먼저 기록한다
   );
 }
 
-// radixOverlayWasOpenAtPointerDown 返回"最近一次 pointerdown 发生时是否有 Radix 弹层
-// 开着"。抽屉/对话框据此:开着弹层时点遮罩 → 只收弹层、不关自身。
+// radixOverlayWasOpenAtPointerDown 은 "가장 최근 pointerdown이 발생했을 때 Radix 오버레이가
+// 열려 있었는지"를 반환한다. 서랍/다이얼로그는 이를 근거로: 오버레이가 열린 상태에서 배경을 누르면 → 오버레이만 닫고 자신은 닫지 않는다.
 export function radixOverlayWasOpenAtPointerDown(): boolean {
   return overlayOpenAtLastPointerDown;
 }
 
-// copyText 把文本写入剪贴板,返回是否成功。
-// 背景:navigator.clipboard 仅在安全上下文(HTTPS / localhost)可用;通过 IP + HTTP
-// 访问时它为 undefined,此时降级到 execCommand("copy")。
+// copyText 는 텍스트를 클립보드에 쓰고 성공 여부를 반환한다.
+// 배경: navigator.clipboard 는 보안 컨텍스트(HTTPS / localhost)에서만 사용할 수 있다. IP + HTTP로
+// 접근할 때는 undefined이므로, 이 경우 execCommand("copy")로 폴백한다.
 export async function copyText(text: string): Promise<boolean> {
   if (navigator.clipboard && window.isSecureContext) {
     try {
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
-      // 继续走降级方案
+      // 폴백 방식으로 계속 진행
     }
   }
   try {

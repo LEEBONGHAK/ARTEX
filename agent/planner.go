@@ -148,22 +148,22 @@ func renderPlannerTodos(items []actool.Todo) string {
 // overview. Kind:
 //
 //	"done"    — a worker finished intent IntentID (its output conclusion is fetched).
-//	"finding" — a worker reported a finding on intent IntentID (Detail = 摘要).
-//	"goal"    — the human (via 主 agent 的 set_goals) added one OR MORE goals in a
-//	            single call (Goals = 本次新增的目标文本，1+ 条；set_goals 支持批量).
-//	"goal_deleted" — the human deleted a goal from 总览的目标管理 (Detail = 被删目标文本).
-//	"goal_edited"  — the human edited a goal from 总览的目标管理 (OldGoal→NewGoal 文本).
-//	"cancelled" — the human deleted intent IntentID (Detail = 删除原因). The intent is
+//	"finding" — a worker reported a finding on intent IntentID (Detail = 요약).
+//	"goal"    — the human (via 메인 agent의 set_goals) added one OR MORE goals in a
+//	            single call (Goals = 이번에 추가된 목표 텍스트, 1+건；set_goals는 배치 지원).
+//	"goal_deleted" — the human deleted a goal from 개요의 목표 관리 (Detail = 삭제된 목표 텍스트).
+//	"goal_edited"  — the human edited a goal from 개요의 목표 관리 (OldGoal→NewGoal 텍스트).
+//	"cancelled" — the human deleted intent IntentID (Detail = 삭제 원인). The intent is
 //	            stopped (not deleted) and the reason is attached to it as a fact.
 type TriggerEvent struct {
 	Kind     string
 	IntentID int64
 	Detail   string
-	Summary  string   // Kind=="cancelled" 专用：删除前捕获的意图摘要（真删除后节点已不存在，无法再查）
-	Goals    []string // Kind=="goal" 专用：本次 set_goals 新增的目标文本（1 条或多条）
-	OldGoal  string   // Kind=="goal_edited" 专用：修改前的目标文本
-	NewGoal  string   // Kind=="goal_edited" 专用：修改后的目标文本
-	Hints    []string // Kind=="hint" 专用：本次 add_hint 新增的提示文本（1 条或多条）
+	Summary  string   // Kind=="cancelled" 전용:삭제 전 캡처한 의도 요약（진짜 삭제 후 노드가 이미 존재하지 않아, 다시 조회 불가）
+	Goals    []string // Kind=="goal" 전용:이번 set_goals로 추가된 목표 텍스트（1건 또는 여러 건）
+	OldGoal  string   // Kind=="goal_edited" 전용:수정 전 목표 텍스트
+	NewGoal  string   // Kind=="goal_edited" 전용:수정 후 목표 텍스트
+	Hints    []string // Kind=="hint" 전용:이번 add_hint로 추가된 힌트 텍스트（1건 또는 여러 건）
 }
 
 // renderTriggers spells out the change(s) that fired this round: for a finished
@@ -197,7 +197,7 @@ func renderTriggers(ts *db.ExplorationStore, evs []TriggerEvent) string {
 		case "finding":
 			b.WriteString(fmt.Sprintf("\n- 意图 #%d（%s）的 worker 报告了一个 finding：%s", ev.IntentID, intentSummary(ts, ev.IntentID), ev.Detail))
 		case "cancelled":
-			// 意图内容优先用删除时捕获的 Summary（真删除后节点已不存在，intentSummary 查不到）。
+			// 의도 내용은 삭제 시 캡처한 Summary를 우선 쓴다（진짜 삭제 후 노드가 이미 존재하지 않아, intentSummary로 조회 안 됨）.
 			sm := ev.Summary
 			if sm == "" {
 				sm = intentSummary(ts, ev.IntentID)
@@ -292,8 +292,8 @@ func renderGraphOverview(data map[string]any) string {
 	return "\n\n【本轮态势（graph_overview 预取，等同你调用该工具的返回；需要细节再按需调 node_detail/list_facts 等）】：\n" + string(b)
 }
 
-// plannerDefaultTmpl is the built-in EDITABLE body (段 [A]) of the planner prompt,
-// seeded into agent_prompts. Goal is a {{.Goal}} template var; the 中间产物输出规约
+// plannerDefaultTmpl is the built-in EDITABLE body (단 [A] [A]) of the planner prompt,
+// seeded into agent_prompts. Goal is a {{.Goal}} template var; the 중간 산출물 출력 규약
 // tail is code-owned (artifactSpec) and appended by plannerSystem after rendering.
 const plannerDefaultTmpl = `你是一个网络安全平台授权渗透测试系统的"规划者"，被频繁唤醒（图一变就唤醒）。职责：读态势 → 判目标 → **只在确有未被覆盖的新方向时**补充探索意图。你是规划者、不是执行者：本轮所有产物只能是【生成/说清意图】或【判定目标】，绝不在 plan 里把活干了。
 
@@ -370,33 +370,33 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	if origin, _ := ts.OriginFactID(); origin > 0 {
 		tsx.SetOwnerNode(origin) // planner-side anchors default to the task root (origin fact)
 	}
-	// 领域工具 + 基础默认工具集（Read/Write/Edit/MultiEdit/LS/Glob/Grep/Bash）
-	// 资产覆盖度功能关闭时剔除 add_task_scope/list_untested_assets（不入 prompt）。
+	// 도메인 도구 + 기본 디폴트 도구 세트（Read/Write/Edit/MultiEdit/LS/Glob/Grep/Bash）
+	// 자산 커버리지 기능이 꺼지면 add_task_scope/list_untested_assets를 제거한다（prompt에 넣지 않음）.
 	base := append(tsx.DropCoverageTools(tsx.PlannerTools()), actool.DefaultTools()...)
 	ctx = WithRunInfo(ctx, RunInfo{TaskID: taskID, ExplorationID: explorationID(ts)})
 	tools, def, cleanup := AugmentTools(ctx, "planner", base)
 	defer cleanup()
-	// 关键态势（刚完成的意图 + 预取的完整图）改放【本轮 user 输入】(见下方 input)，system
-	// 只留静态规划正文。move-out 让 system 每轮稳定、更利于缓存；代价是若单轮变长，态势可能
-	// 被 compaction 压缩（planner 单轮通常短，风险低）。situational 会拼进下方 input。
+	// 핵심 상황（방금 완료된 의도 + 미리 가져온 전체 그래프）을【이번 라운드 user 입력】으로 옮긴다(아래 input 참조), systemsystem
+	// 은 정적 계획 본문만 남긴다. move-out은 system을 매 라운드 안정시켜、캐싱에 더 유리하다；대가는 단일 라운드가 길어지면, 상황이
+	// compaction에 압축될 수 있다（planner 단일 라운드는 보통 짧아, 리스크 낮음）. situational은 아래 input에 이어 붙는다.
 	situational := renderTriggers(ts, triggers) + renderGraphOverview(tsx.graphOverviewData())
-	// 任务级 deadline / 终局模式(经 ctx 注入,见 taskclock.go)。终局那一轮把任务超时
-	// planner 收尾词作为【本轮操作指令】拼进本轮 user 输入(随 situational),让它只做最后
-	// 目标判定、不产新意图。
+	// 작업 레벨 deadline / 종국 모드(ctx로 주입, taskclock.go 참조). 종국 그 라운드는 작업 타임아웃
+	// planner planner 수습 문구를【이번 라운드 작업 지시】로 이번 라운드 user 입력에 이어 붙여(situational과 함께), 마지막으로
+	// 목표 판정만 하고、새 의도를 만들지 않게 한다.
 	tc := taskClockFrom(ctx)
 	if tc.Final {
 		situational += "\n\n【任务终局收尾（本轮特殊指令，覆盖上面的常规规划流程）】：" + resolveTaskTimeoutWrapup("planner")
 	}
-	// 本任务的工作目录 <workDir>/tasks/<taskID>，先建好。
+	// 이 작업의 작업 디렉터리 <workDir>/tasks/<taskID>를, 먼저 만들어 둔다.
 	taskDir := ensureRunDir(p.workDir, taskID, 0)
 	ctx = intercept.WithReviewContext(ctx, taskDir, intercept.ReviewBackground{})
 	sysBody := plannerSystem(goal, p.workDir, taskDir)
 	if p.wantConstraints() {
-		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,框定探索边界
+		sysBody += constraintBlock(ts) // 작업 제약(있으면)을 시스템 프롬프트에 주입해, 탐색 경계를 한정한다
 	}
 	system, boundary := deferredSystem(sysBody, def)
-	// planner 无自身墙钟预算;有 deadline 时把 MaxDuration 夹逼到剩余,让在跑的规划轮在
-	// 任务到点时进收尾(因超时→任务超时词,因步数→per-run 词)。
+	// planner planner는 자체 벽시계 예산이 없다;deadline이 있으면 MaxDuration을 남은 시간으로 조여, 실행 중인 계획 라운드가
+	// 작업 마감 시각에 수습으로 진입한다(타임아웃 때문→작업 타임아웃 문구, 스텝 수 때문→per-run 문구).
 	maxDur, clamped := clampMaxDuration(tc.DeadlineUnix, 0)
 	settle := wrapupSettlement("planner", nil)
 	if tc.DeadlineUnix > 0 {
@@ -410,11 +410,11 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 		DeferredTools:   def.Deferred,
 		UnlockSet:       def.Unlock,
 		PermissionMode:  permission.ModeBypass,
-		EnableWebFetch:  true, // 走记录代理留痕；载入代理 CA 验证 MITM 重签的 HTTPS 证书
+		EnableWebFetch:  true, // 기록 프록시를 거쳐 흔적을 남김；프록시 CA를 로드해 MITM이 재서명한 HTTPS 인증서를 검증
 		WebFetchProxy:   p.proxyAddr,
 		WebFetchCACert:  p.proxyCACert,
-		// 联网搜索(可选)。ddgs 无需 key；brave-free 需 BraveKey；tavily 需 TavilyKey。
-		// WebSearchProxy 是独立出口代理(http/https/socks5)，与记录流量的 MITM 代理无关；空则直连。
+		// 인터넷 검색(선택). ddgs는 key 불필요；brave-free는 BraveKey 필요；tavily는 TavilyKey 필요.
+		// WebSearchProxy 독립 출구 프록시다(http/https/socks5), 트래픽을 기록하는 MITM 프록시와 무관하다；비면 직접 연결.
 		EnableWebSearch:       p.webSearch.Enabled,
 		WebSearchBackend:      p.webSearch.Backend,
 		BraveSearchAPIKey:     p.webSearch.BraveKey,
@@ -423,45 +423,45 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 		DeepSeekSearchAPIKey:  p.webSearch.DeepSeekAPIKey,
 		DeepSeekSearchModel:   p.webSearch.DeepSeekModel,
 		WebSearchProxy:        p.webSearch.Proxy,
-		BashEnv:               proxyEnv(p.proxyAddr, p.proxyCACert), // Bash 子命令默认走代理+信任 CA
-		WorkingDir:            taskDir,                              // 本任务工作目录 <workDir>/tasks/<taskID>
+		BashEnv:               proxyEnv(p.proxyAddr, p.proxyCACert), // Bash 하위 명령은 기본적으로 프록시 경유 + 신뢰하는 CA
+		WorkingDir:            taskDir,                              // 이 작업 작업 디렉터리 <workDir>/tasks/<taskID>
 		ToolOutputDir:         cmdOutDir(taskDir),
 		MaxTurns:              p.maxTurns, // 0 = unlimited (configurable in agent management)
-		MaxDuration:           maxDur,     // 0=不限;有 deadline 时=距 deadline 剩余
+		MaxDuration:           maxDur,     // 0=무제한;deadline 있으면=deadline까지 남음
 		Compaction:            compactionConfig(p.compactionWindow()),
-		// 跨唤醒共享的规划待办：让串行链在多轮之间保留（session 是新的，store 不是）。
+		// 깨어남 간 공유하는 계획 투두:직렬 체인을 여러 라운드 사이에 보존한다（session은 새것, store는 아님）.
 		Todos: p.todoFor(ts.ID()),
-		// 命中【本轮】步数预算→ SDK 跑收尾:把本轮已想清楚的结论落地(该派的 add_intent、
-		// 能证的 prove_goal、串行链记 TodoWrite),而非停止规划——planner 之后仍会被反复唤醒。
-		// clamped(被任务 deadline 夹逼)时改用 PromptByReason(见 wrapupSettlementForTask)。
+		// 【이번 라운드】스텝 수 예산에 명중→ SDK가 수습 실행:이번 라운드에 명확히 생각한 결론을 안착(보낼 add_intent、
+		// 증명 가능한 prove_goal、직렬 체인은 TodoWrite로 기록), 계획을 멈추는 게 아니라——planner는 이후에도 반복해서 깨워진다.
+		// clamped(작업 deadline에 조여짐)일 때는 PromptByReason을 쓴다(wrapupSettlementForTask 참조).
 		Settlement:   settle,
-		NonStreaming: p.nonStreaming(), // 该 profile 选非流式时走 Provider.Complete
-		MaxTokens:    p.maxTokens(),    // 0 = 不发上限,由服务端默认值决定
+		NonStreaming: p.nonStreaming(), // 이 profile이 비스트리밍 선택 시 거치는 경로: Provider.Complete
+		MaxTokens:    p.maxTokens(),    // 0 = 상한을 보내지 않음, 서버 측 기본값이 결정
 	}
 	if p.tx != nil { // persist raw LLM conversation; one accumulating file per task's planner
 		opts.Transcript = p.tx
 		opts.SessionID = fmt.Sprintf("exp%d-planner", ts.ID())
 	}
-	// 实验功能:开启后由 noa 接管上下文压缩(归档集中在 <workDir>/noa/<SessionID> 下,持久)。
+	// 실험 기능:켜면 noa가 컨텍스트 압축을 넘겨받는다(아카이브는 <workDir>/noa/<SessionID> 아래에 집중, 영속).
 	noaSession := fmt.Sprintf("exp%d-planner", ts.ID())
 	enableNoa(&opts, p.noaEnabledFn, p.workDir, noaSession, noaWarn(noaSession))
-	// 态势（刚完成的意图 + 完整图）现在拼进本轮 user 输入（见下方 input）。user 里还有
-	// 指令 + 跨唤醒待办（todo 是模型自己的规划便签，可再生，放 user 即可）。
-	// 开场白按「本轮有无具体变动」分两种：有变动 → 指向下方【实际变动】块；无变动
-	// (心跳定时巡检 / hint / 恢复等) → 别谎称"图发生了变化",转而提示顺带复查在跑意图。
+	// 상황（방금 완료된 의도 + 전체 그래프）은 이제 이번 라운드 user 입력에 이어 붙는다（아래 input 참조）. user에는 또
+	// 지시 + 깨어남 간 투두가 있다（todo는 모델 자신의 계획 메모라, 재생 가능하니 user에 두면 된다）.
+	// 오프닝 멘트는「이번 라운드에 구체적 변동이 있는지」로 둘로 나뉜다:변동 있음 → 아래【실제 변동】블록을 가리킴；변동 없음
+	// ((하트비트 정기 순회 / hint / 복구 등) → "그래프가 변했다"고 거짓말하지 말고, 대신 실행 중 의도를 겸사겸사 재점검하라고 안내한다.
 	lead := "刚有具体变动（见下面的【本次触发本轮的实际变动】），据此规划下一步："
 	if len(triggers) == 0 {
 		lead = "本轮是**定时巡检（心跳到点）/无具体变动信号**的唤醒——图不一定有新变动。顺带复查在跑意图：长时间无进展或跑偏的用 steer_work 纠偏、方向整个错的用 kill_work 止损；再判定目标、决定是否补方向："
-		// 心跳/无变动唤醒时,若全图已无任何 open 或 running 意图 → 探索已停摆(没 worker 在跑、
-		// 也没排队方向)。明确告知 planner 并强制其本轮补出新方向,别只复查在跑意图后空转一轮。
+		// 하트비트/무변동 깨어남 시, 전체 그래프에 open 또는 running 의도가 하나도 없으면 → 탐색이 멈춤(worker가 실행 중이지 않고、
+		// 대기 중인 방향도 없음). planner에게 명확히 알리고 이번 라운드에 새 방향을 강제로 보충하게 하며, 실행 중 의도만 재점검하고 한 라운드 공회전하지 않게 한다.
 		if active, err := ts.HasActiveIntent(); err == nil && !active {
 			lead = "本轮是**定时巡检（心跳到点）**的唤醒,且当前**已没有任何 open 或 running 的意图**——没有 worker 在跑、也没有排队中的方向,探索已停摆。你**必须**在本轮产出一个或多个向目标推进、且与图中既有意图**互不重复**的新意图(不得产出 0 意图);先据下面的态势判定目标是否已达成,未达成则立即补方向："
 		}
 	}
 	input := lead + situational + "\n\n据上面的态势，判定目标。目标已【真正达成】（已拿到目标成果/已确认目标漏洞）时用 prove_goal 逐个标记。**硬底线：只要目标尚未达成、且当前没有任何 open 或 running 意图（frontier_open=0 且 running_intents 为空），本轮就必须产出至少一个向目标推进的意图——此时没有在跑的 work 可等、也没有在排队的方向，产出 0 意图=任务停摆。仅当已有 open/running 意图在推进、或目标已达成时，本轮才可以不产出新意图。**" +
 		renderPlannerTodos(opts.Todos.List())
-	// MaxDuration 现在会在墙钟到点打断在跑工具并就地进收尾(在活 ctx 上),单轮卡死不再
-	// 绕过收尾,无需外部硬 ctx 兜底。ctx 只承载 pause / kill / shutdown。
+	// MaxDuration 이제 벽시계 마감 시각에 실행 중 도구를 중단하고 제자리에서 수습에 진입한다(활성 ctx 위에서), 단일 라운드 교착이 더는
+	// 수습을 우회하지 않아, 외부 하드 ctx 폴백이 필요 없다. ctx는 pause / kill / shutdown만 운반한다.
 	_, _, err = captureRun(ctx, opts, input,
 		func(r db.Activity) {
 			if emit != nil {

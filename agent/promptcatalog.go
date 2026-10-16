@@ -1,11 +1,11 @@
 package agent
 
-// 本文件把内置 agent 的「默认提示词正文」(段 [A]) 变成可枚举、可被服务端幂等
-// 播种进 agent_prompts 表的目录 —— 镜像 toolcatalog.go 的 BuiltinToolSeeds()。
+// 이 파일은 내장 agent의 「기본 프롬프트 본문」(섹션 [A])을 열거 가능하고 서버가 멱등적으로
+// agent_prompts 테이블에 seed할 수 있는 카탈로그로 만든다 —— toolcatalog.go의 BuiltinToolSeeds()를 미러링.
 //
-// 只包含【可编辑正文】：段 [B] trafficTool 与段 [C] 中间产物输出规约 是代码固定
-// 注入(见 worker.go 的 workerTrafficBlock/artifactSpec)，不入库、不可编辑，因此
-// 不在种子里。种子文本用 Go 模板占位({{.Goal}} 等)，渲染时按运行期变量填充。
+// 【편집 가능한 본문】만 포함: 섹션 [B] trafficTool와 섹션 [C] 중간 산출물 출력 규약은 코드 고정
+// 주입(worker.go의 workerTrafficBlock/artifactSpec 참조)이라 DB에 넣지 않고 편집 불가, 따라서
+// seed에 없음. seed 텍스트는 Go 템플릿 플레이스홀더({{.Goal}} 등)를 쓰고, 렌더링 시 런타임 변수로 채움.
 
 // autoDefaultTmpl is the built-in "Auto" platform-operator agent's prompt. Auto
 // runs via the chat page and drives the platform through tools: task ops

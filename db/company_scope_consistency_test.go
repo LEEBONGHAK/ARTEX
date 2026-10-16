@@ -180,7 +180,7 @@ func TestCompanyScopeLimitsAndCheckedErrors(t *testing.T) {
 	if err := ValidateCompanyScopeInputBounds([]ScopeInput{{Kind: "keyword", Value: boundary + "界"}}); !errors.As(err, &validationErr) {
 		t.Fatalf("oversized raw value error=%v want CompanyScopeValidationError", err)
 	}
-	// 条数不再设上限,只校验单条长度。
+	// 건수에는 더 이상 상한을 두지 않고, 단건 길이만 검증.
 	if err := ValidateCompanyScopeInputBounds(make([]ScopeInput, 1000)); err != nil {
 		t.Fatalf("rule count should be unbounded, got %v", err)
 	}
@@ -193,7 +193,7 @@ func TestCompanyScopeLimitsAndCheckedErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cleanupCompany(d, companyID)
-	// 曾经封顶 256 条,逐个 IP / 域名录范围的企业很容易撞上;现在不限条数。
+	// 예전에는 256건으로 상한을 뒀는데, IP/도메인을 하나씩 범위에 등록하는 기업은 쉽게 부딪힘; 이제는 건수 무제한.
 	const bulk = 300
 	rules := make([]ScopeInput, bulk)
 	for i := range rules {

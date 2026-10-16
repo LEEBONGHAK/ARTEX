@@ -8,8 +8,8 @@ import (
 	"github.com/Autumn-27/artex/db"
 )
 
-// 没有任何配置时，解析结果必须是全零 —— 也就是 SDK 与 task_llm 各自的内置默认，
-// 与「重试可配」这个特性上线之前逐字节一致。
+// 아무 설정도 없을 때 파싱 결과는 반드시 전부 0이어야 함 —— 즉 SDK와 task_llm 각자의 내장 기본값으로,
+// 「재시도 설정 가능」 기능이 출시되기 전과 바이트 단위로 동일.
 func TestResolveRetryUnconfigured(t *testing.T) {
 	got := resolveRetry(db.RetryOverride{}, db.LLMRetryPolicy{})
 	if got != (agent.RetryConfig{}) {

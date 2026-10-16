@@ -104,18 +104,18 @@ func (s *Server) applyTaskControlWithCause(t *Task, action string, pauseCause er
 		defer s.concMu.Unlock()
 		current, exists := s.m.Task(t.ID)
 		if !exists || current != t || s.engine.IsDeleting(t.ID) {
-			return out, fmt.Errorf("任务正在删除，无法控制")
+			return out, fmt.Errorf("작업 삭제 중이라 제어할 수 없음")
 		}
 		if !s.engine.beginTaskOperation(t.ID) {
-			return out, fmt.Errorf("任务正在删除，无法控制")
+			return out, fmt.Errorf("작업 삭제 중이라 제어할 수 없음")
 		}
 		defer s.engine.decInflight(t.ID)
 		lifecycle := t.lifecycleSnapshot()
 		if isTerminalStatus(lifecycle.Status) {
-			return out, fmt.Errorf("终态任务不能执行暂停")
+			return out, fmt.Errorf("종료 상태 작업은 일시정지할 수 없음")
 		}
 		if lifecycle.Paused {
-			return out, fmt.Errorf("任务已经暂停")
+			return out, fmt.Errorf("작업이 이미 일시정지됨")
 		}
 		wasQueued := lifecycle.Queued
 		wasEnginePaused := s.engine.IsPaused(t.ID)
@@ -145,11 +145,11 @@ func (s *Server) applyTaskControlWithCause(t *Task, action string, pauseCause er
 	default:
 		return out, fmt.Errorf("action must be pause|resume")
 	}
-	log.Printf("[task] #%s %s", t.ID, map[string]string{"pause": "已暂停", "resume": "已继续"}[action])
+	log.Printf("[task] #%s %s", t.ID, map[string]string{"pause": "일시정지됨", "resume": "계속됨"}[action])
 	return out, nil
 }
 
-// intentSummaryOf 取意图 payload 里的 summary,供删除通知在意图节点消失(真删除)前留档。
+// intentSummaryOf 의도 payload 안의 summary를 꺼낸다, 삭제 통지가 의도 노드 소멸(하드 삭제) 전에 기록을 남기도록 제공.
 func intentSummaryOf(n *db.Node) string {
 	if n == nil {
 		return ""
@@ -171,7 +171,7 @@ func (s *Server) applyIntentControl(ctx context.Context, t *Task, iid int64, act
 	}
 	if node == nil {
 		if inherited, sourceErr := t.Store.GetNodeWithSources(iid); sourceErr == nil && inherited != nil && inherited.Inherited {
-			return out, fmt.Errorf("继承意图为只读，不能控制")
+			return out, fmt.Errorf("상속 의도는 읽기 전용이라 제어할 수 없음")
 		}
 		return out, fmt.Errorf("intent not found")
 	}
@@ -181,7 +181,7 @@ func (s *Server) applyIntentControl(ctx context.Context, t *Task, iid int64, act
 	switch action {
 	case "pause":
 		if node.State != "running" {
-			return out, fmt.Errorf("仅运行中的意图可以暂停")
+			return out, fmt.Errorf("실행 중인 의도만 일시정지할 수 있음")
 		}
 		if err := s.engine.ControlWork(ctx, iid, "pause"); err != nil {
 			return out, err
@@ -189,30 +189,30 @@ func (s *Server) applyIntentControl(ctx context.Context, t *Task, iid int64, act
 		out.State = "paused"
 	case "resume":
 		if node.State != "paused" {
-			return out, fmt.Errorf("仅已暂停的意图可以恢复")
+			return out, fmt.Errorf("일시정지된 의도만 복구할 수 있음")
 		}
 		changed, err := t.Store.CompareAndSetIntentState(iid, "paused", "open")
 		if err != nil {
 			return out, err
 		}
 		if !changed {
-			return out, fmt.Errorf("%w: 意图不再是 paused 状态", db.ErrIntentStateConflict)
+			return out, fmt.Errorf("%w: 의도가 더 이상 paused 상태가 아님", db.ErrIntentStateConflict)
 		}
 		t.Notify()
 		out.State = "open"
 	case "cancel":
-		// 删除支持两种模式:
-		//   soft(默认,假删除):意图停到 state='deleted'、删除原因记入 delete_reason 字段,
-		//     保留意图节点与全部产出/血缘,不再在图上另挂 fact。
-		//   hard(真删除):物理删除该意图及"仅由它支撑"的独占子孙节点(级联到叶子),避免留下
-		//     孤立数据;共享节点、goal、任务根事实保留。
-		// 两种模式都用 cancelled 触发告知 planner(意图内容 + 删除原因),让它据此重规划。
+		// 삭제는 두 가지 모드 지원:
+		//   soft(기본, 가짜 삭제): 의도를 state='deleted'로 멈추고, 삭제 원인을 delete_reason 필드에 기록,
+		//     의도 노드와 모든 산출/혈통을 보존, 그래프에 fact를 추가로 달지 않음.
+		//   hard(하드 삭제): 해당 의도와 "그것만이 지탱하는" 전용 자손 노드를 물리 삭제(리프까지 캐스케이드), 남겨진
+		//     고립 데이터 방지; 공유 노드, goal, 작업 루트 사실은 보존.
+		// 두 모드 모두 cancelled 트리거로 planner에 알림(의도 내용 + 삭제 원인), 이에 따라 재규획하게 함.
 		if node.State != "running" && node.State != "paused" && node.State != "open" {
-			return out, fmt.Errorf("仅待领/运行中/已暂停的意图可以删除")
+			return out, fmt.Errorf("대기/실행 중/일시정지된 의도만 삭제 가능")
 		}
 		reason = strings.TrimSpace(reason)
 		if reason == "" {
-			return out, fmt.Errorf("请填写删除原因")
+			return out, fmt.Errorf("삭제 원인을 입력하세요")
 		}
 		if node.State == "running" {
 			if err := s.engine.ControlWork(ctx, iid, "cancel"); err != nil {
@@ -228,7 +228,7 @@ func (s *Server) applyIntentControl(ctx context.Context, t *Task, iid int64, act
 			s.cancelWorkerSide(t.ID, t.ExpID, iid)
 			t.NotifyCancelled(iid, summary, reason)
 			out.Deleted = &cleanup
-			out.State = "" // 节点已删除,前端据 Deleted 从列表移除
+			out.State = "" // 노드 삭제됨, 프런트엔드가 Deleted에 따라 목록에서 제거
 		} else {
 			if _, err := t.Store.SoftDeleteIntent(iid, reason); err != nil {
 				return out, err
@@ -259,7 +259,7 @@ func (s *Server) controlTasksBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	taskIDs := normalizeBatchTaskIDs(req.TaskIDs)
 	if len(taskIDs) == 0 || len(taskIDs) > maxBatchControlIDs {
-		writeErr(w, 400, fmt.Sprintf("task_ids 数量必须为 1-%d", maxBatchControlIDs))
+		writeErr(w, 400, fmt.Sprintf("task_ids 개수는 1-%d 여야 합니다", maxBatchControlIDs))
 		return
 	}
 	items := make([]batchControlItem, 0, len(taskIDs))

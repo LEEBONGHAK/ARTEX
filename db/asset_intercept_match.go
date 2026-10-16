@@ -7,11 +7,11 @@ import (
 	"strings"
 )
 
-// 资产拦截规则的匹配/执行层。asset_intercept.go 只负责规则存储，这里负责把
-// 「目标资产」的域名/IP/URL 与启用中的规则做匹配。供 agent 工具（add_intent、
-// insert_assets）在下发意图 / 插入资产前调用，命中则拒绝。
+// 자산 가로채기 규칙의 매칭/실행 계층. asset_intercept.go는 규칙 저장만 담당하고, 여기서는
+// 「대상 자산」의 도메인/IP/URL을 활성 중인 규칙과 매칭한다. agent 도구（add_intent、
+// insert_assets）가 의도 하달 / 자산 삽입 전에 호출하며, 명중하면 거부한다.
 
-// AssetInterceptKindLabel 返回 kind 的中文标签，用于给 agent 的说明消息。
+// AssetInterceptKindLabel kind의 라벨을 반환하며, agent 설명 메시지에 쓴다.
 func AssetInterceptKindLabel(kind string) string {
 	switch kind {
 	case "exact_domain":
@@ -32,7 +32,7 @@ func AssetInterceptKindLabel(kind string) string {
 	return kind
 }
 
-// Reason 返回一条可读的命中原因，形如：命中资产拦截规则 [域名(模糊): .gov.cn]（备注）。
+// Reason 가독 가능한 명중 원인을 반환한다, 형식 예:命中资产拦截规则 [域名(模糊): .gov.cn]（备注）。
 func (r AssetInterceptRule) Reason() string {
 	s := fmt.Sprintf("命中资产拦截规则 [%s: %s]", AssetInterceptKindLabel(r.Kind), r.Pattern)
 	if note := strings.TrimSpace(r.Note); note != "" {
@@ -41,7 +41,7 @@ func (r AssetInterceptRule) Reason() string {
 	return s
 }
 
-// matchOne 判断单条启用规则是否命中给定的域名/IP/URL 候选串，返回命中的具体值。
+// matchOne 단일 활성 규칙이 주어진 도메인/IP/URL 후보 문자열에 명중하는지 판단하고, 명중한 구체 값을 반환한다.
 func matchOne(r AssetInterceptRule, domains, ips, urls []string) (string, bool) {
 	p := strings.TrimSpace(r.Pattern)
 	if p == "" {
@@ -100,8 +100,8 @@ func matchOne(r AssetInterceptRule, domains, ips, urls []string) (string, bool) 
 	return "", false
 }
 
-// MatchAssetInterceptRules 返回第一条命中给定 域名/IP/URL 候选串的启用规则，及命中的具体值。
-// 供 insert_assets 用原始输入（尚未落库的 assetInputItem）匹配。
+// MatchAssetInterceptRules 주어진 도메인/IP/URL 후보 문자열에 명중하는 첫 활성 규칙과, 명중한 구체 값을 반환한다.
+// insert_assets가 원본 입력（아직 저장되지 않은 assetInputItem）으로 매칭하도록 제공한다.
 func MatchAssetInterceptRules(rules []AssetInterceptRule, domains, ips, urls []string) (AssetInterceptRule, string, bool) {
 	for _, r := range rules {
 		if !r.Enabled {
@@ -114,8 +114,8 @@ func MatchAssetInterceptRules(rules []AssetInterceptRule, domains, ips, urls []s
 	return AssetInterceptRule{}, "", false
 }
 
-// interceptCandidates 提取一个已落库资产用于拦截匹配的 域名/IP/URL 候选串。
-// URL 的 host 会被拆出并归类，使「只带 URL」的服务类资产也能被 域名/IP 规则命中。
+// interceptCandidates 이미 저장된 자산의 가로채기 매칭용 도메인/IP/URL 후보 문자열을 추출한다.
+// URL 의 host를 분해해 분류하여,「URL만 지닌」서비스류 자산도 도메인/IP 규칙에 명중할 수 있게 한다.
 func (a *Asset) interceptCandidates() (domains, ips, urls []string) {
 	add := func(dst *[]string, s string) {
 		if s = strings.TrimSpace(s); s != "" {
@@ -143,7 +143,7 @@ func (a *Asset) interceptCandidates() (domains, ips, urls []string) {
 	return domains, ips, urls
 }
 
-// InterceptLabel 返回资产的简短标识，用于给 agent 的说明消息。
+// InterceptLabel 자산의 짧은 식별자를 반환하며, agent 설명 메시지에 쓴다.
 func (a *Asset) InterceptLabel() string {
 	var target string
 	switch {
@@ -159,7 +159,7 @@ func (a *Asset) InterceptLabel() string {
 	return fmt.Sprintf("资产#%d[%s] %s", a.ID, a.Type, target)
 }
 
-// hasEnabledRule 判断规则集里是否存在任一启用规则。
+// hasEnabledRule 규칙 집합에 활성 규칙이 하나라도 있는지 판단한다.
 func hasEnabledRule(rules []AssetInterceptRule) bool {
 	for _, r := range rules {
 		if r.Enabled {
@@ -169,19 +169,19 @@ func hasEnabledRule(rules []AssetInterceptRule) bool {
 	return false
 }
 
-// AssetGateDecision 是「先拦截后允许」闸门对一组候选串的判定结果。
+// AssetGateDecision 「먼저 가로채고 나중에 허용」게이트가 후보 문자열 묶음에 내린 판정 결과다.
 type AssetGateDecision struct {
 	Allowed bool
-	Reason  string // 被拒原因（不含资产标识）；Allowed=true 时为空
+	Reason  string // 거부 사유（자산 식별자 미포함）；Allowed=true일 때 비어 있음
 }
 
-// EvaluateAssetGate 执行任务级闸门判定：
-//  1. 命中任一启用的 blockRules → 拒绝（拦截原因）。
-//  2. 否则若 allowRules 存在启用项且都不命中 → 拒绝（不在允许范围）。
-//  3. 否则放行。
+// EvaluateAssetGate 작업 레벨 게이트 판정을 실행한다:
+//  1. 활성 blockRules 중 하나라도 명중 → 거부（가로채기 사유）.
+//  2. 아니면 allowRules에 활성 항목이 있고 모두 명중 안 함 → 거부（허용 범위 밖）.
+//  3. 아니면 통과.
 //
-// allowRules 为空/无启用项时，允许闸门不生效（即不启用白名单，全部放行），
-// 避免「未配置允许规则」把所有资产挡掉。
+// allowRules allowRules가 비거나/활성 항목이 없을 때, 허용 게이트가 작동하지 않는다（즉 화이트리스트 미활성, 전부 통과）,
+// 「허용 규칙 미설정」이 모든 자산을 막는 것을 피한다.
 func EvaluateAssetGate(blockRules, allowRules []AssetInterceptRule, domains, ips, urls []string) AssetGateDecision {
 	if rule, _, ok := MatchAssetInterceptRules(blockRules, domains, ips, urls); ok {
 		return AssetGateDecision{Allowed: false, Reason: rule.Reason()}
@@ -194,26 +194,26 @@ func EvaluateAssetGate(blockRules, allowRules []AssetInterceptRule, domains, ips
 	return AssetGateDecision{Allowed: true}
 }
 
-// AssetInterceptHit 描述一个被闸门拒绝的资产（拦截命中 或 不在允许范围）。
+// AssetInterceptHit 게이트에 거부된 자산 하나를 기술한다（가로채기 명중 또는 허용 범위 밖）.
 type AssetInterceptHit struct {
 	Asset  *Asset
-	Reason string // 可读原因
+	Reason string // 가독 사유
 }
 
-// Describe 返回一条可读的说明：资产信息 + 原因。
+// Describe 가독 가능한 설명을 반환한다:자산 정보 + 사유.
 func (h AssetInterceptHit) Describe() string {
 	return fmt.Sprintf("%s → %s", h.Asset.InterceptLabel(), h.Reason)
 }
 
-// ListAssetInterceptRules 是 *DB 同名方法的透传，让只持有 AssetStore 的调用方
-// （如 agent 工具）也能读取规则。
+// ListAssetInterceptRules *DB 동명 메서드의 패스스루로, AssetStore만 보유한 호출 측
+// （예: agent 도구）도 규칙을 읽을 수 있게 한다.
 func (s *AssetStore) ListAssetInterceptRules() ([]AssetInterceptRule, error) {
 	return s.db.ListAssetInterceptRules()
 }
 
-// CheckAssetsIntercept 按 id 载入资产，逐个执行「先拦截后允许」闸门判定，返回所有
-// 被拒的资产。拦截规则 = 全局 ∪ 任务级 block；允许规则 = 任务级 allow（仅本任务）。
-// 无 id 时快速返回。用全局 GetByIDs（不受任务范围过滤）以保证拦截不被 scope 削弱。
+// CheckAssetsIntercept id로 자산을 로드하고, 하나씩「먼저 가로채고 나중에 허용」게이트 판정을 실행하며, 모든
+// 거부된 자산을 반환한다. 가로채기 규칙 = 전역 ∪ 작업 레벨 block；허용 규칙 = 작업 레벨 allow（이 작업만）.
+// id가 없으면 빠르게 반환한다. 전역 GetByIDs（작업 범위 필터를 받지 않음）를 써서 가로채기가 scope에 약화되지 않도록 보장한다.
 func (s *AssetStore) CheckAssetsIntercept(taskID int64, ids []int64) ([]AssetInterceptHit, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -231,7 +231,7 @@ func (s *AssetStore) CheckAssetsIntercept(taskID int64, ids []int64) ([]AssetInt
 		blockRules = append(blockRules, tb...)
 		allowRules = ta
 	}
-	// 既无拦截规则、也无启用的允许规则 → 无需判定，全部放行。
+	// 가로채기 규칙도 없고、활성 허용 규칙도 없으면 → 판정 불필요, 전부 통과.
 	if len(blockRules) == 0 && !hasEnabledRule(allowRules) {
 		return nil, nil
 	}

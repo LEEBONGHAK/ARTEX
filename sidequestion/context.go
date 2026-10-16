@@ -88,7 +88,7 @@ func (b *contextBuilder) summarize(ctx context.Context, prior, text string) (str
 			return "", err
 		}
 		if b.calls >= 12 {
-			return "", errors.New("旁路上下文整理已达到本次处理上限，请缩小问题范围后重试")
+			return "", errors.New("사이드 컨텍스트 정리가 이번 처리 상한에 도달함, 질문 범위를 좁힌 후 다시 시도하세요")
 		}
 		overhead := EstimateInputTokens(llm.CompletionRequest{System: []string{summaryInstruction}, Messages: []llm.Message{llm.UserText("[此前摘要]\n" + prior + "\n[新材料片段]\n")}})
 		chunkBytes := min(32000, b.window-2048-overhead-512) * 3

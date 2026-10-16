@@ -21,7 +21,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import type { FindingAssetKind, FindingAssetNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// 图标沿用资产页的类型映射,同一种资产在两处长得一样。
+// 아이콘은 자산 페이지의 유형 매핑을 그대로 사용,같은 종류 자산이 두 곳에서 같은 모양.
 const KIND_ICON: Record<FindingAssetKind, LucideIcon> = {
   company: BuildingIcon,
   root_domain: GlobeIcon,
@@ -34,22 +34,22 @@ const KIND_ICON: Record<FindingAssetKind, LucideIcon> = {
 };
 
 const KIND_LABEL: Record<FindingAssetKind, string> = {
-  company: "企业",
-  root_domain: "根域名",
-  subdomain: "子域名",
+  company: "기업",
+  root_domain: "루트 도메인",
+  subdomain: "서브 도메인",
   ip: "IP",
-  app: "应用",
-  service: "服务",
-  endpoint: "接口",
-  none: "未关联",
+  app: "앱",
+  service: "서비스",
+  endpoint: "인터페이스",
+  none: "연결 안 됨",
 };
 
-// TreeNode 是节点数组组装出来的树。后端已按「同父下发现多的在前」排好序,
-// 这里只需按数组顺序挂载。
+// TreeNode 노드 배열로 조립한 트리입니다. 백엔드가 이미 「같은 부모 아래 발견이 많은 것이 앞」 순으로 정렬함,
+// 여기서는 배열 순서대로 마운트하면 됩니다.
 interface TreeNode extends FindingAssetNode {
   children: TreeNode[];
   depth: number;
-  /** 树上真正渲染的文字;完整 label 仍保留在 label 里(悬停提示与面包屑用)。 */
+  /** 트리에 실제 렌더링되는 텍스트;전체 label 여전히 다음에 보존: label 안(호버 툴팁과 브레드크럼용). */
   display: string;
 }
 
@@ -65,8 +65,8 @@ function parseAssetURL(raw: string): URL | null {
   }
 }
 
-// hostOf 取一个节点代表的宿主:URL 取 hostname,「host:port」取 host,其余就是
-// 标签本身(根域名 / 子域名 / IP)。
+// hostOf 한 노드가 대표하는 호스트를 가져옴:URL 가져옴 hostname,「host:port」에서 가져옴 host,나머지는
+// 레이블 자체(루트 도메인 / 서브 도메인 / IP).
 function hostOf(label: string): string {
   const url = parseAssetURL(label);
   if (url) return stripBrackets(url.hostname);
@@ -74,25 +74,25 @@ function hostOf(label: string): string {
   return stripBrackets(hostPort ? hostPort[1] : label);
 }
 
-// shortLabel 去掉与父节点重复的前缀。service / endpoint 的 label 是完整 URL,而
-// 宿主域名/IP 上一行已经写过了 —— 深层节点本来就窄,再把 host 重复一遍,真正有
-// 信息量的端口和路径就全被截断掉了。完整值仍在 title 与面包屑里。
+// shortLabel 부모 노드와 중복되는 접두사를 제거.service / endpoint 의 label 는 전체 URL,그리고
+// 호스트 도메인/IP 윗줄에서 이미 작성함 —— 깊은 노드는 원래 좁음,다시 host 한 번 반복,실제로 있는
+// 정보량이 있는 포트와 경로가 모두 잘립니다. 전체 값은 여전히 title 와 브레드크럼에.
 function shortLabel(node: FindingAssetNode, parent?: FindingAssetNode): string {
   if (!parent) return node.label;
 
-  // 子域名挂在根域名下:去掉根域名后缀,只留自己那一段。
+  // 서브 도메인이 루트 도메인 아래 매달림:루트 도메인 접미사 제거,자기 구간만 남김.
   if (node.kind === "subdomain" && node.label.endsWith(`.${parent.label}`)) {
     return node.label.slice(0, -(parent.label.length + 1)) || node.label;
   }
   if (node.kind !== "service" && node.kind !== "endpoint") return node.label;
 
-  // 父标签正好是自己的前缀(接口挂在同 URL 的服务下、服务挂在同 IP 下):直接砍掉。
+  // 부모 레이블이 정확히 자신의 접두사(인터페이스가 같은 것에 매달림 URL 의 서비스 아래, 서비스가 같은 IP 아래):바로 잘라냄.
   if (node.label.startsWith(parent.label)) {
     return node.label.slice(parent.label.length) || node.label;
   }
 
-  // 否则只有父节点确实就是这个 URL 的宿主时才简写,不然会丢掉辨识信息
-  // (比如服务因为缺子域名资产行而直接挂在根域名下,那就得显示完整 URL)。
+  // 그러지 않으면 부모 노드가 실제로 이것인 경우만 URL 의 호스트일 때만 축약,그러지 않으면 식별 정보를 잃음
+  // (예: 서비스가 서브 도메인 자산 행이 없어 루트 도메인 아래 바로 매달리는 경우,그러면 전체를 표시해야 함 URL).
   if (hostOf(node.label) !== hostOf(parent.label)) return node.label;
 
   const url = parseAssetURL(node.label);
@@ -113,7 +113,7 @@ export function buildAssetTree(nodes: FindingAssetNode[]): TreeNode[] {
     const current = byKey.get(node.key);
     if (!current) continue;
     const parent = node.parent ? byKey.get(node.parent) : undefined;
-    // 父节点缺失(被截断层级丢掉)时上提为顶层,不让子树整个消失。
+    // 부모 노드 누락(잘린 계층은 버림)때 최상위로 올림,하위 트리가 통째로 사라지지 않게.
     if (parent) {
       parent.children.push(current);
       current.display = shortLabel(node, parent);
@@ -129,8 +129,8 @@ export function buildAssetTree(nodes: FindingAssetNode[]): TreeNode[] {
   return roots;
 }
 
-// assetPathOf 返回从顶层到该节点的路径,用于右侧面包屑。每一级同样只显示相对
-// 上一级的增量(display),完整值留在 label 里。
+// assetPathOf 최상위부터 해당 노드까지의 경로를 반환,오른쪽 브레드크럼에 사용. 각 단계도 상대 경로만 표시
+// 상위 단계의 증분(display),전체 값은 다음에 남음: label 에.
 export function assetPathOf(nodes: FindingAssetNode[], key: string | null): (FindingAssetNode & { display: string })[] {
   if (!key) return [];
   const byKey = new Map(nodes.map((n) => [n.key, n]));
@@ -145,8 +145,8 @@ export function assetPathOf(nodes: FindingAssetNode[], key: string | null): (Fin
   return path.map((node, index) => ({ ...node, display: shortLabel(node, path[index - 1]) }));
 }
 
-// filterTree 按关键词过滤:命中的节点保留,并保留其整条祖先链(祖先自身可以不命中)。
-// 命中节点的子孙一并保留,便于继续下钻。
+// filterTree 키워드로 필터:적중한 노드는 보존,그 전체 조상 체인을 보존(조상 자체는 적중하지 않아도 됨).
+// 적중 노드의 하위를 함께 보존,계속 드릴다운하기 쉽게.
 function filterTree(nodes: TreeNode[], keyword: string): TreeNode[] {
   const kw = keyword.trim().toLowerCase();
   if (!kw) return nodes;
@@ -160,7 +160,7 @@ function filterTree(nodes: TreeNode[], keyword: string): TreeNode[] {
   return nodes.map(walk).filter((n): n is TreeNode => n !== null);
 }
 
-// collectKeys 收集一棵(子)树里的全部 key,用于「展开全部匹配项」。
+// collectKeys 하나의 트리 수집(자식)트리의 전체 key,「모든 일치 항목 펼치기」에 사용.
 function collectKeys(nodes: TreeNode[], out: Set<string> = new Set()): Set<string> {
   for (const node of nodes) {
     out.add(node.key);
@@ -176,9 +176,9 @@ interface AssetTreeProps {
   loading?: boolean;
   truncated?: boolean;
   droppedKinds?: string[];
-  /** 未选中任何资产时右侧展示的发现总数,用于「全部资产」那一行。 */
+  /** 자산을 선택하지 않았을 때 오른쪽에 표시되는 발견 총수,「전체 자산」 행에 사용. */
   findingTotal: number;
-  /** 资产视图不轮询,树的计数靠这个按钮或页面内的增删改来刷新。 */
+  /** 자산 뷰는 폴링 안 함,트리 카운트는 이 버튼 또는 페이지 내 추가·삭제·수정으로 새로고침됩니다. */
   onRefresh?: () => void;
 }
 
@@ -194,13 +194,13 @@ export function AssetTree({
 }: AssetTreeProps) {
   const [keyword, setKeyword] = React.useState("");
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
-  // 记住用户手动折叠过的节点,免得「默认展开顶层」在每次刷新后又把它们撑开。
+  // 사용자가 수동으로 접은 노드를 기억,「최상위 기본 펼침」이 새로고침마다 다시 펼치지 않도록.
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
 
   const roots = React.useMemo(() => buildAssetTree(nodes), [nodes]);
   const visible = React.useMemo(() => filterTree(roots, keyword), [roots, keyword]);
 
-  // 搜索时把匹配到的分支全部展开,否则命中项藏在折叠节点里等于没搜。
+  // 검색 시 일치한 분기를 모두 펼침,그러지 않으면 적중 항목이 접힌 노드에 숨어 검색 안 한 것과 같음.
   const searching = keyword.trim() !== "";
   const searchKeys = React.useMemo(() => (searching ? collectKeys(visible) : null), [searching, visible]);
 
@@ -208,7 +208,7 @@ export function AssetTree({
     (node: TreeNode) => {
       if (searchKeys) return searchKeys.has(node.key);
       if (expanded.has(node.key)) return true;
-      // 顶层默认展开一层:再深的层级要用户自己点开,免得一次铺开上千行。
+      // 최상위는 기본으로 한 계층 펼침:더 깊은 계층은 사용자가 직접 펼침,한 번에 수천 행을 펼치지 않도록.
       return node.depth === 0 && !collapsed.has(node.key);
     },
     [collapsed, expanded, searchKeys],
@@ -233,9 +233,9 @@ export function AssetTree({
     [isExpanded],
   );
 
-  let emptyHint = "当前筛选下没有关联到资产的发现。";
-  if (loading) emptyHint = "加载中…";
-  else if (searching) emptyHint = "没有匹配的资产。";
+  let emptyHint = "현재 필터에서 자산에 연결된 발견이 없습니다.";
+  if (loading) emptyHint = "로드 중…";
+  else if (searching) emptyHint = "일치하는 자산이 없습니다.";
 
   const rows: React.ReactNode[] = [];
   const pushRows = (list: TreeNode[]) => {
@@ -264,8 +264,8 @@ export function AssetTree({
             type="search"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
-            placeholder="过滤资产"
-            aria-label="过滤资产"
+            placeholder="자산 필터"
+            aria-label="자산 필터"
           />
           <InputGroupAddon>
             <SearchIcon aria-hidden="true" />
@@ -278,8 +278,8 @@ export function AssetTree({
             className="size-8 shrink-0 text-muted-foreground"
             onClick={onRefresh}
             disabled={loading}
-            aria-label="刷新资产树"
-            title="刷新资产树"
+            aria-label="자산 트리 새로고침"
+            title="자산 트리 새로고침"
           >
             <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
           </Button>
@@ -294,7 +294,7 @@ export function AssetTree({
           selected === null ? "bg-accent font-medium" : "hover:bg-accent/50",
         )}
       >
-        <span>全部资产</span>
+        <span>전체 자산</span>
         <span className="text-xs tabular-nums text-muted-foreground">{findingTotal}</span>
       </button>
 
@@ -307,8 +307,8 @@ export function AssetTree({
 
       {truncated && (
         <p className="px-1 text-xs text-muted-foreground">
-          资产过多，已隐藏{(droppedKinds ?? []).map((k) => KIND_LABEL[k as FindingAssetKind] ?? k).join(" / ")}
-          层级（计数仍已计入上层）。用筛选或过滤框收窄可看到完整层级。
+          자산이 너무 많아 숨김{(droppedKinds ?? []).map((k) => KIND_LABEL[k as FindingAssetKind] ?? k).join(" / ")}
+          계층(카운트는 여전히 상위 계층에 포함됨). 필터나 필터 상자로 좁히면 전체 계층을 볼 수 있습니다.
         </p>
       )}
     </div>
@@ -343,7 +343,7 @@ function AssetTreeRow({
           type="button"
           onClick={onToggle}
           className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-          aria-label={open ? "折叠" : "展开"}
+          aria-label={open ? "접기" : "펼치기"}
           aria-expanded={open}
         >
           <ChevronRightIcon className={cn("size-3.5 transition-transform", open && "rotate-90")} />
@@ -362,16 +362,16 @@ function AssetTreeRow({
       </button>
       <span className="flex shrink-0 items-center gap-1 text-xs tabular-nums">
         {node.critical > 0 && (
-          <span className="text-rose-600" title={`严重 ${node.critical}`}>
+          <span className="text-rose-600" title={`심각 ${node.critical}`}>
             {node.critical}
           </span>
         )}
         {node.high > 0 && (
-          <span className="text-red-500" title={`高危 ${node.high}`}>
+          <span className="text-red-500" title={`높음 ${node.high}`}>
             {node.high}
           </span>
         )}
-        <span className="text-muted-foreground" title={`共 ${node.total} 条发现`}>
+        <span className="text-muted-foreground" title={`총 ${node.total} 건 발견`}>
           {node.total}
         </span>
       </span>

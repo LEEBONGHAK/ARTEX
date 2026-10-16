@@ -168,7 +168,7 @@ func (s *Server) drainTaskSideQuestions(ctx context.Context, taskID string) erro
 	defer s.side.mu.Unlock()
 	for _, snap := range s.side.pending {
 		if snap.Parent.TaskID == id {
-			return errors.New("旁路上下文尚未保存，请重试")
+			return errors.New("사이드 컨텍스트가 아직 저장되지 않음, 다시 시도하세요")
 		}
 	}
 	return nil
@@ -193,7 +193,7 @@ func (s *Server) sideProvider(model sidequestion.Model) (llm.Provider, error) {
 		// Validate the persisted reference even if a previous provider is cached.
 		current, exists := s.loadProfileConfig(model.ProfileID)
 		if !exists || sideModel(current, model.ProfileID, model.Name).Identity != model.Identity {
-			return nil, errors.New("模型配置已删除或变化，请先运行主 Agent 更新上下文")
+			return nil, errors.New("모델 구성이 삭제되었거나 변경됨, 먼저 메인 Agent를 실행해 컨텍스트를 갱신하세요")
 		}
 		p, cfg, ok = s.providerForProfile(model.ProfileID)
 	} else {
@@ -202,7 +202,7 @@ func (s *Server) sideProvider(model sidequestion.Model) (llm.Provider, error) {
 		s.cfgMu.Unlock()
 	}
 	if !ok || p == nil || sideModel(cfg, model.ProfileID, model.Name).Identity != model.Identity {
-		return nil, errors.New("模型配置已删除或变化，请先运行主 Agent 更新上下文")
+		return nil, errors.New("모델 구성이 삭제되었거나 변경됨, 먼저 메인 Agent를 실행해 컨텍스트를 갱신하세요")
 	}
 	return p, nil
 }
@@ -210,7 +210,7 @@ func (s *Server) sideProvider(model sidequestion.Model) (llm.Provider, error) {
 func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string) (sidequestion.Parent, bool) {
 	p := sidequestion.Parent{}
 	if s.side == nil || s.m.pg == nil {
-		writeErr(w, 503, "旁路服务不可用")
+		writeErr(w, 503, "사이드 서비스를 사용할 수 없음")
 		return p, false
 	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -242,7 +242,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 		return p, false
 	}
 	if pt == nil || s.engine.IsDeleting(t.ID) {
-		writeErr(w, 409, "任务已归档或正在删除")
+		writeErr(w, 409, "작업이 이미 아카이브되었거나 삭제 중")
 		return p, false
 	}
 	p.TaskID, p.ExplorationID = id, t.ExpID
@@ -262,7 +262,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 			return p, false
 		}
 		if n.State == "stopped" {
-			writeErr(w, 409, "Worker 已删除")
+			writeErr(w, 409, "Worker가 삭제됨")
 			return p, false
 		}
 		p.IntentID = iid
@@ -349,13 +349,13 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 	}
 	in.Question = strings.TrimSpace(in.Question)
 	if in.Question == "" || len([]rune(in.Question)) > 4000 || !validWorkerMessageRequestID(in.ClientID) {
-		writeErr(w, 400, "问题须为 1–4000 字符，并提供有效请求 ID")
+		writeErr(w, 400, "질문은 1–4000자여야 하며 유효한 요청 ID를 제공해야 함")
 		return
 	}
 	s.side.commands.Lock()
 	defer s.side.commands.Unlock()
 	if p.TaskID > 0 && s.engine.IsDeleting(strconv.FormatInt(p.TaskID, 10)) {
-		writeErr(w, 409, "任务正在归档或删除")
+		writeErr(w, 409, "작업이 아카이브 또는 삭제 중")
 		return
 	}
 	if existing, err := s.m.pg.ExistingSideRequest(r.Context(), key, in.ClientID); err != nil {
@@ -363,14 +363,14 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 		return
 	} else if existing != nil {
 		if existing.Question != in.Question {
-			writeErr(w, 409, "同一请求 ID 不能用于不同问题")
+			writeErr(w, 409, "동일 요청 ID는 서로 다른 질문에 사용할 수 없음")
 			return
 		}
 		writeJSON(w, 200, existing)
 		return
 	}
 	if snap == nil {
-		writeErr(w, 409, "尚无上下文快照，请先运行主 Agent")
+		writeErr(w, 409, "아직 컨텍스트 스냅샷이 없음, 먼저 메인 Agent를 실행하세요")
 		return
 	}
 	provider, err := s.sideProvider(snap.Model)
@@ -392,7 +392,7 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 		return
 	}
 	if full {
-		writeErr(w, 429, "旁路请求已达并发上限，请稍后重试")
+		writeErr(w, 429, "사이드 요청이 동시 실행 상한에 도달함, 잠시 후 다시 시도하세요")
 		return
 	}
 	agentQuestion, ok := s.prepareChatMentionMessage(w, in.Question)
@@ -488,10 +488,10 @@ func (s *Server) runSide(ctx context.Context, cancel context.CancelFunc, e sideq
 	e.Status = "completed"
 	if ctx.Err() != nil {
 		e.Status = "cancelled"
-		e.Error = "回答已停止"
+		e.Error = "답변이 중지됨"
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			e.Status = "failed"
-			e.Error = "旁路回答超过 120 秒，已停止"
+			e.Error = "사이드 답변이 120초를 초과하여 중지됨"
 		}
 	} else if runErr != nil {
 		e.Status = "failed"
