@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -20,7 +21,30 @@ const (
 	authPassKey    = "auth.password_hash"
 	jwtTTL         = 7 * 24 * time.Hour
 	keyChars       = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+	// 하한은 setup 페이지의 프런트엔드 검증과 일치한다 — 검증을 프런트엔드에만 두면
+	// 없는 것과 같아서 API를 직접 호출하면 우회된다. 상한은 bcrypt의 하드 리밋이다:
+	// 72바이트를 넘으면 GenerateFromPassword가 ErrPasswordTooLong을 반환하므로,
+	// 미리 막는 편이 의미가 불명확한 「비밀번호 암호화 실패」를 받게 하는 것보다 낫다.
+	minPasswordRunes = 8
+	maxPasswordBytes = 72
 )
+
+// errDataSourceUnavailable 는 비밀번호 관련 읽기 작업이 실패했을 때의 통일된 응답이다. 이
+// handler 들은 절대 "읽지 못함"을 "설정 안 됨"으로 간주해선 안 된다: authInit 은 예전에 이
+// 때문에 데이터베이스 오류 시 통과시켜, 미인증 요청이 기존 관리자 비밀번호를 덮어쓰게 했다.
+const errDataSourceUnavailable = "데이터 소스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도하세요"
+
+// validatePassword 는 빈 문자열을 반환하면 통과를 의미하고, 그렇지 않으면 사용자에게 바로 표시할 수 있는 한국어 사유를 반환한다.
+func validatePassword(pw string) string {
+	if utf8.RuneCountInString(pw) < minPasswordRunes {
+		return fmt.Sprintf("비밀번호 길이는 최소 %d자", minPasswordRunes)
+	}
+	if len(pw) > maxPasswordBytes {
+		return fmt.Sprintf("비밀번호 길이는 %d바이트를 초과할 수 없음", maxPasswordBytes)
+	}
+	return ""
+}
 
 // loadOrCreateJWTKey reads the 32-byte signing key from keyDir/jwt.key. keyDir is
 // the project base dir (next to the executable), NOT the browsable workspace root
@@ -115,12 +139,19 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 }
 
 // GET /api/auth/status — reports whether the admin password has been initialised.
+// 읽기 실패 시 initialized:false 가 아니라 반드시 503 을 반환해야 한다: 프런트엔드는
+// initialized:false 일 때 사용자를 /setup 으로 보내 비밀번호를 설정하게 하므로(login/page.tsx),
+// 데이터베이스 장애를 200 으로 포장하면 사용자를 기존 비밀번호를 덮어쓰는 길로 떠미는 셈이다.
 func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 	pg := s.pg(w)
 	if pg == nil {
 		return
 	}
-	hash, _, _ := pg.GetSetting(authPassKey)
+	hash, _, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, errDataSourceUnavailable)
+		return
+	}
 	writeJSON(w, 200, map[string]any{"initialized": hash != ""})
 }
 
@@ -130,7 +161,11 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 	if pg == nil {
 		return
 	}
-	existing, _, _ := pg.GetSetting(authPassKey)
+	existing, _, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, errDataSourceUnavailable)
+		return
+	}
 	if existing != "" {
 		writeErr(w, 403, "비밀번호가 이미 설정됨")
 		return
@@ -142,13 +177,26 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "비밀번호는 비어 있을 수 없음")
 		return
 	}
+	if msg := validatePassword(req.Password); msg != "" {
+		writeErr(w, 400, msg)
+		return
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		writeErr(w, 500, "비밀번호 암호화 실패")
 		return
 	}
-	if err := pg.SetSetting(authPassKey, string(hash)); err != nil {
+	// upsert 가 아니라 INSERT ... ON CONFLICT DO NOTHING 을 쓴다: 위의 GetSetting 은 그저
+	// 빠른 실패 경로일 뿐이고, 진짜 "최초 1회만 설정 가능" 보장은 기본 키 제약에 달려 있다.
+	// bcrypt 는 수십 밀리초가 걸리는데, 그 사이 다른 요청이 먼저 비밀번호를 설정할 수도 있고,
+	// 읽기 검사 자체도 장애로 무효화될 수 있다.
+	inserted, err := pg.InsertSettingIfAbsent(authPassKey, string(hash))
+	if err != nil {
 		writeErr(w, 500, "저장 실패: "+err.Error())
+		return
+	}
+	if !inserted {
+		writeErr(w, 403, "비밀번호가 이미 설정됨")
 		return
 	}
 	tok, err := signJWT(s.jwtKey)
@@ -183,7 +231,15 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "새 비밀번호는 비어 있을 수 없음")
 		return
 	}
-	hash, ok, _ := pg.GetSetting(authPassKey)
+	if msg := validatePassword(req.NewPassword); msg != "" {
+		writeErr(w, 400, msg)
+		return
+	}
+	hash, ok, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, errDataSourceUnavailable)
+		return
+	}
 	if !ok || hash == "" {
 		writeErr(w, 403, "비밀번호가 초기화되지 않음, 먼저 비밀번호를 설정하세요")
 		return
@@ -222,7 +278,11 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "사용자명 또는 비밀번호가 올바르지 않음")
 		return
 	}
-	hash, ok, _ := pg.GetSetting(authPassKey)
+	hash, ok, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, errDataSourceUnavailable)
+		return
+	}
 	if !ok || hash == "" {
 		writeErr(w, 403, "비밀번호가 초기화되지 않음, 먼저 비밀번호를 설정하세요")
 		return
