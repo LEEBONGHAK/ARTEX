@@ -653,13 +653,13 @@ func (e *Engine) emitActivity(t *Task, r db.Activity) db.Activity {
 		if isFKViolation(err) {
 			storeID := t.Store.ID()
 			if exists, refs, maxID, dErr := e.m.pg.ExplorationDiag(storeID); dErr != nil {
-				diag = fmt.Sprintf(" | FK | FK진단 쿼리 실패(store.expID=%d task.ExpID=%d): %v(store.expID=%d task.ExpID=%d): %v", storeID, t.ExpID, dErr)
+				diag = fmt.Sprintf(" | FK | FK진단 쿼리 실패(store.expID=%d task.ExpID=%d): %v", storeID, t.ExpID, dErr)
 			} else {
-				diag = fmt.Sprintf(" | FK | FK진단: store.expID=%d task.ExpID=%d exploration존재=%v 그것을참조하는task수=%d MAX(exploration.id)=%d=%d MAX(exploration.id)=%d",
+				diag = fmt.Sprintf(" | FK | FK진단: store.expID=%d task.ExpID=%d exploration존재=%v 그것을참조하는task수=%d MAX(exploration.id)=%d",
 					storeID, t.ExpID, exists, refs, maxID)
 			}
 		}
-		log.Printf("[activity] task %s task %s 활동 기록 폐기(이 작업 누적 제 %d 건) worker=%s kind=%s tool=%s tuid=%s reason=%s summary=%q: %v%s) worker=%s kind=%s tool=%s tuid=%s reason=%s summary=%q: %v%s",
+		log.Printf("[activity] task %s 활동 기록 폐기(이 작업 누적 제 %d 건) worker=%s kind=%s tool=%s tuid=%s reason=%s summary=%q: %v%s",
 			t.ID, n, r.Worker, r.Kind, r.Tool, r.ToolUseID, dropReason(err), preview(r.Summary, 80), err, diag)
 		e.touch(t.ID)
 		return r
@@ -684,12 +684,12 @@ func (e *Engine) appendActivity(t *Task, r db.Activity) (int64, error) {
 	for attempt := 1; attempt <= 3; attempt++ {
 		if id, err = t.Store.AppendActivity(r); err == nil {
 			if attempt > 1 {
-				log.Printf("[activity] task %s task %s 쓰기 제 %d 회 재시도 성공 (worker=%s kind=%s tool=%s) (worker=%s kind=%s tool=%s)",
+				log.Printf("[activity] task %s 쓰기 제 %d 회 재시도 성공 (worker=%s kind=%s tool=%s)",
 					t.ID, attempt, r.Worker, r.Kind, r.Tool)
 			}
 			return id, nil
 		}
-		log.Printf("[activity] task %s task %s 쓰기 실패 (제 %d/3 회, worker=%s kind=%s tool=%s expID=%d): %v, worker=%s kind=%s tool=%s expID=%d): %v",
+		log.Printf("[activity] task %s 쓰기 실패 (제 %d/3 회, worker=%s kind=%s tool=%s expID=%d): %v",
 			t.ID, attempt, r.Worker, r.Kind, r.Tool, t.Store.ID(), err)
 		time.Sleep(time.Duration(attempt) * 25 * time.Millisecond)
 	}

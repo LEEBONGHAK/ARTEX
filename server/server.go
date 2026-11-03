@@ -1701,7 +1701,7 @@ func (s *Server) seed(t *Task, text string) {
 			_ = t.Store.Anchor(begin, rootID)
 		}
 	}
-	log.Printf("[seed] task %s: 목표 사이트 %s %s", t.ID, u)
+	log.Printf("[seed] task %s: 목표 사이트 %s", t.ID, u)
 	// 여기서 Notify 안 함: 첫 라운드 트리거 여부는 engine.Run의 HasActiveIntent가 결정(시드 의도 작업
 	// 첫 라운드 건너뜀). seed는 Run보다 먼저 실행, 여기서 Notify하면 채널에 buffered되어 plannerLoop 시작 시
 	// 소비되어 Run 게이팅을 우회 → 시드 작업이 여전히 첫 라운드를 잘못 트리거.
@@ -1716,13 +1716,13 @@ func (s *Server) seedFirstIntent(t *Task) {
 	summary := fmt.Sprintf("完成任务目标：%s（任务：%s）", t.Goal, t.Description)
 	id, err := t.Store.AddIntent(map[string]any{"summary": summary}, 8, nil, "seed")
 	if err != nil {
-		log.Printf("[seed] task %s: 시드 의도 내려보내기 실패: %v: %v", t.ID, err)
+		log.Printf("[seed] task %s: 시드 의도 내려보내기 실패: %v", t.ID, err)
 		return
 	}
 	if origin, _ := t.Store.OriginFactID(); origin > 0 {
 		_ = t.Store.Link(origin, db.RelDerivedFrom, id)
 	}
-	log.Printf("[seed] task %s: 시드 의도 #%d 내려보냄 #%d", t.ID, id)
+	log.Printf("[seed] task %s: 시드 의도 #%d 내려보냄", t.ID, id)
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
@@ -1746,7 +1746,7 @@ func (s *Server) taskCoverage(w http.ResponseWriter, r *http.Request) {
 	}
 	as := s.m.Assets()
 	if as == nil {
-		writeErr(w, 503, "asset store asset store 미사용")
+		writeErr(w, 503, "asset store 미활성화")
 		return
 	}
 	// 자산 커버리지 기능 꺼짐 → {enabled:false} 단락 반환, 프런트엔드가 이에 따라 커버리지 카드/진행도 숨김.
@@ -1774,7 +1774,7 @@ func (s *Server) taskCoverageGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	as := s.m.Assets()
 	if as == nil {
-		writeErr(w, 503, "asset store asset store 미사용")
+		writeErr(w, 503, "asset store 미활성화")
 		return
 	}
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
@@ -1830,7 +1830,7 @@ func (s *Server) taskScopeList(w http.ResponseWriter, r *http.Request) {
 	}
 	as := s.m.Assets()
 	if as == nil {
-		writeErr(w, 503, "asset store asset store 미사용")
+		writeErr(w, 503, "asset store 미활성화")
 		return
 	}
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
@@ -1850,7 +1850,7 @@ func (s *Server) taskScopeAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	as := s.m.Assets()
 	if as == nil {
-		writeErr(w, 503, "asset store asset store 미사용")
+		writeErr(w, 503, "asset store 미활성화")
 		return
 	}
 	var body struct {
@@ -1879,7 +1879,7 @@ func (s *Server) taskScopeDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	as := s.m.Assets()
 	if as == nil {
-		writeErr(w, 503, "asset store asset store 미사용")
+		writeErr(w, 503, "asset store 미활성화")
 		return
 	}
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
@@ -3271,7 +3271,7 @@ func (s *Server) getTrafficBlob(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", hash+".bin"))
 	if _, err := io.Copy(w, f); err != nil {
-		log.Printf("[traffic] blob %s 다운로드 중단: %v%v", hash, err)
+		log.Printf("[traffic] blob %s 다운로드 중단: %v", hash, err)
 	}
 }
 
@@ -3345,7 +3345,7 @@ func notifyDigestIntervalMin(pg *db.DB) int {
 func (s *Server) pgDetectPython(w http.ResponseWriter, r *http.Request) {
 	p := detectPython()
 	if p == "" {
-		writeErr(w, 404, "python 미감지(python3/python 모두 PATH에 없음) PATH)")
+		writeErr(w, 404, "python 미감지(python3/python 모두 PATH에 없음)")
 		return
 	}
 	if err := s.m.pg.SetSetting(settingPythonInterp, p); err != nil {

@@ -73,7 +73,7 @@ func blockInternalDial(_, address string, _ syscall.RawConn) error {
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
-		return fmt.Errorf("대상 주소를 해석할 수 없음 %q %q", host)
+		return fmt.Errorf("대상 주소를 해석할 수 없음 %q", host)
 	}
 	if isBlockedDialIP(ip) {
 		return fmt.Errorf("로컬 머신/링크 로컬 주소 %s로의 전송 거부（로컬 머신 서비스로 전송이 꼭 필요하면 %s=1 설정）", ip, AllowLocalTargetsEnv)

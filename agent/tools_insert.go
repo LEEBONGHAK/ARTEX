@@ -348,7 +348,7 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 					}
 					summary := "Agent가 insert_assets로 등록"
 					if t.ownerNode > 0 {
-						summary = fmt.Sprintf("Worker Worker 의도 #%d가 insert_assets로 등록", t.ownerNode)
+						summary = fmt.Sprintf("Worker 의도 #%d가 insert_assets로 등록", t.ownerNode)
 					}
 					_ = t.as.SetTaskAssetSource(taskID, id, "agent", summary, sourceNodeID)
 				}

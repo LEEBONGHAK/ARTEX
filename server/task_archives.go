@@ -518,7 +518,7 @@ func (s *Server) queueTaskArchivesBatch(w http.ResponseWriter, r *http.Request) 
 	}
 	parsed := normalizeBatchTaskIDs(request.TaskIDs)
 	if len(parsed) == 0 {
-		writeErr(w, 400, "task_ids task_ids는 비어 있을 수 없음")
+		writeErr(w, 400, "task_ids는 비어 있을 수 없음")
 		return
 	}
 	if len(parsed) > 100 {
@@ -592,7 +592,7 @@ func (s *Server) deleteTaskArchivesBatch(w http.ResponseWriter, r *http.Request)
 
 func normalizeArchiveIDs(ids []int64) ([]int64, error) {
 	if len(ids) == 0 {
-		return nil, errors.New("archive_ids archive_ids는 비어 있을 수 없음")
+		return nil, errors.New("archive_ids는 비어 있을 수 없음")
 	}
 	if len(ids) > 100 {
 		return nil, errors.New("한 번에 최대 100개 아카이브만 처리")
